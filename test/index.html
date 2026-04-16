@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>맞춤형 시험 감독 배치 시스템</title>
+    <!-- 엑셀 파싱용 SheetJS 라이브러리 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: 'Malgun Gothic', sans-serif;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+
+        .header-panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            margin-top: 15px;
+            display: none;
+            /* 엑셀 업로드 전에는 숨김 */
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        /* 학교 건물 그리드 디자인 */
+        .building-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            /* 층(Row) 사이의 간격 */
+            margin-top: 20px;
+        }
+
+        .floor {
+            display: grid;
+            /* 1학년 2칸, 여백, 2학년 2칸, 여백, 3학년 2칸 */
+            grid-template-columns: 1fr 1fr 20px 1fr 1fr 20px 1fr 1fr;
+            gap: 10px;
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 8px;
+            align-items: stretch;
+        }
+
+        .spacer {
+            width: 20px;
+            /* 학년 사이 복도 느낌의 여백 */
+        }
+
+        .classroom {
+            background: white;
+            border: 2px solid #ccc;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        /* 학년별 테두리 색상 */
+        .grade-1 {
+            border-color: #4facfe;
+        }
+
+        .grade-2 {
+            border-color: #43e97b;
+        }
+
+        .grade-3 {
+            border-color: #fa709a;
+        }
+
+        .class-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .exam-subject {
+            color: #dc3545;
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .teacher-info {
+            font-size: 14px;
+            background: #f1f3f5;
+            margin: 3px 0;
+            padding: 5px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header-panel">
+        <h2>🏫 우리학교 전용 감독 배치 프로그램 (8개반 기준)</h2>
+        <p>1. 교사 명단 엑셀 파일을 업로드하세요. (열 이름: 연번, 성명, 과목, 담당학년, 담당반)</p>
+        <input type="file" id="excelInput" accept=".xlsx, .xls" />
+
+        <div id="controls" class="controls">
+            <span id="teacherCount"></span>
+            <button onclick="runAssignment()">▶ 1일차 1교시 자동 배치 실행</button>
+        </div>
+    </div>
+
+    <!-- 배정 결과가 그려질 컨테이너 -->
+    <div id="buildingContainer" class="building-container"></div>
+
+    <script>
+        // 전역 변수
+        let teachers = [];
+
+        // 📌 1. 시험 시간표 하드코딩 (여기에 실제 시간표를 입력하세요!)
+        // 예시: 1일차 1교시에 1학년은 국어, 2학년은 수학, 3학년은 영어를 본다고 가정
+        const currentExams = [
+            { grade: 1, subject: "영어" },
+            { grade: 2, subject: "영어" },
+            { grade: 3, subject: "토익연습실무" }
+        ];
+
+        // 📌 2. 엑셀 파일 읽기 로직
+        document.getElementById('excelInput').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+                // 교사 데이터 초기화 (배치 로직을 위한 상태값 추가)
+                teachers = jsonData.map(t => ({
+                    연번: t.연번,
+                    성명: t.성명,
+                    과목: t.과목,
+                    담당학년: t.담당학년 !== "" ? Number(t.담당학년) : null,
+                    담당반: t.담당반 !== "" ? Number(t.담당반) : null,
+                    totalCount: 0 // 감독 누적 횟수
+                }));
+
+                document.getElementById('teacherCount').innerHTML = `<strong>인식된 교사: ${teachers.length}명</strong> | `;
+                document.getElementById('controls').style.display = 'block';
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // 📌 3. 감독 배치 핵심 알고리즘
+        function runAssignment() {
+            // 이번 교시에 시험 보는 과목 목록 추출 (해당 과목 교사들은 순회하므로 배제하기 위함)
+            const examSubjects = currentExams.map(exam => exam.subject);
+
+            // 이번 교시에 투입 가능한 교사 풀(Pool) 필터링
+            let availablePool = teachers.filter(t => !examSubjects.includes(t.과목));
+
+            // 배정 결과를 담을 객체
+            let results = {};
+
+            // 학년(1~3)과 반(1~8) 루프 돌며 2명씩 배정
+            for (let g = 1; g <= 3; g++) {
+                const gradeExam = currentExams.find(e => e.grade === g);
+                if (!gradeExam) continue; // 이 학년은 시험이 없으면 건너뜀
+
+                for (let c = 1; c <= 8; c++) {
+                    // 감독 횟수 적은 순으로 정렬 (같으면 랜덤 섞기)
+                    availablePool.sort((a, b) => {
+                        if (a.totalCount === b.totalCount) return Math.random() - 0.5;
+                        return a.totalCount - b.totalCount;
+                    });
+
+                    let roomTeachers = [];
+
+                    // 앞에서부터 조건에 맞는 교사 2명 뽑기
+                    for (let i = 0; i < availablePool.length; i++) {
+                        let candidate = availablePool[i];
+
+                        // 규칙: 이 반의 담임 선생님은 배제
+                        if (candidate.담당학년 === g && candidate.담당반 === c) continue;
+
+                        // 합격! 교사 배정
+                        roomTeachers.push(candidate);
+                        candidate.totalCount += 1; // 횟수 증가
+
+                        // 풀에서 제거 (중복 배정 방지)
+                        availablePool.splice(i, 1);
+                        i--;
+
+                        if (roomTeachers.length === 2) break; // 2명 다 뽑으면 종료
+                    }
+
+                    // 방(Room) 키값으로 결과 저장 (예: "1-1")
+                    results[`${g}-${c}`] = {
+                        subject: gradeExam.subject,
+                        teachers: roomTeachers
+                    };
+                }
+            }
+
+            // 계산된 결과를 화면(그리드)에 그리기
+            renderBuilding(results);
+        }
+
+        // 📌 4. 화면 UI 렌더링 (학교 건물 구조)
+        function renderBuilding(results) {
+            const container = document.getElementById('buildingContainer');
+            container.innerHTML = ''; // 기존 내용 지우기
+
+            // 4개 층(Row)을 생성 (row 0~3)
+            for (let row = 0; row < 4; row++) {
+                const floorDiv = document.createElement('div');
+                floorDiv.className = 'floor';
+
+                // 각 층에는 1학년, 2학년, 3학년이 차례대로 들어감
+                for (let g = 1; g <= 3; g++) {
+                    // 한 층에 2개 반씩 (예: 0번째 row는 1반, 2반 / 1번째 row는 3반, 4반)
+                    const class1 = row * 2 + 1;
+                    const class2 = row * 2 + 2;
+
+                    // 첫 번째 반 카드 만들기
+                    floorDiv.appendChild(createClassCard(g, class1, results));
+                    // 두 번째 반 카드 만들기
+                    floorDiv.appendChild(createClassCard(g, class2, results));
+
+                    // 학년과 학년 사이에 여백(복도) 추가 (마지막 학년 뒤에는 제외)
+                    if (g < 3) {
+                        const spacer = document.createElement('div');
+                        spacer.className = 'spacer';
+                        floorDiv.appendChild(spacer);
+                    }
+                }
+                container.appendChild(floorDiv);
+            }
+        }
+
+        // 개별 교실 카드를 생성하는 헬퍼 함수
+        function createClassCard(grade, classNum, results) {
+            const card = document.createElement('div');
+            card.className = `classroom grade-${grade}`;
+
+            const roomKey = `${grade}-${classNum}`;
+            const roomData = results[roomKey];
+
+            let html = `<div class="class-title">${grade}학년 ${classNum}반</div>`;
+
+            if (roomData) {
+                html += `<div class="exam-subject">[ ${roomData.subject} ]</div>`;
+
+                if (roomData.teachers.length === 2) {
+                    html += `<div class="teacher-info">${roomData.teachers[0].성명} (${roomData.teachers[0].과목})</div>`;
+                    html += `<div class="teacher-info">${roomData.teachers[1].성명} (${roomData.teachers[1].과목})</div>`;
+                } else {
+                    html += `<div class="teacher-info" style="color:red;">교사 부족 에러!</div>`;
+                }
+            } else {
+                html += `<div class="exam-subject" style="color:#aaa;">시험 없음</div>`;
+            }
+
+            card.innerHTML = html;
+            return card;
+        }
+    </script>
+</body>
+
+</html>
