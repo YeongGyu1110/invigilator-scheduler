@@ -3,142 +3,240 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>맞춤형 시험 감독 배치 시스템 (다중 교시 & 전공과목 지원)</title>
+    <title>맞춤형 시험 감독 배치 시스템 (인터랙티브 시간표)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
-        body {
-            font-family: 'Malgun Gothic', sans-serif;
-            padding: 20px;
-            background-color: #f0f2f5;
-        }
-        .header-panel {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }
-        .controls {
-            margin-top: 15px;
-            display: none;
-        }
-        button {
-            padding: 10px 20px;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: bold;
-        }
+        body { font-family: 'Malgun Gothic', sans-serif; padding: 20px; background-color: #f0f2f5; }
+        .panel { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h2 { margin-top: 0; color: #333; }
+        button { padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; font-weight: bold; margin-top: 10px; }
         button:hover { background-color: #0056b3; }
 
-        /* 교시별 컨테이너 */
-        .period-container {
-            margin-bottom: 50px;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        .period-title {
-            font-size: 24px;
-            color: #333;
-            border-bottom: 3px solid #007bff;
-            padding-bottom: 10px;
-            margin-bottom: 20px;
-        }
+        /* 시간표 입력기 스타일 */
+        .schedule-table { width: 100%; border-collapse: collapse; margin-top: 15px; user-select: none; /* 드래그 시 텍스트 선택 방지 */ }
+        .schedule-table th, .schedule-table td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+        .schedule-table th { background-color: #f8f9fa; }
+        .grade-header { font-size: 16px; font-weight: bold; }
+        .grade-1 { background-color: #e3f2fd; }
+        .grade-2 { background-color: #e8f5e9; }
+        .grade-3 { background-color: #fce4ec; }
+        
+        /* 시간표 셀(Cell) 인터랙션 */
+        .exam-cell { cursor: pointer; transition: background-color 0.1s; height: 35px; font-weight: bold; color: #333; }
+        .exam-cell.selected { background-color: #ffeeba !important; border: 2px solid #ffc107; }
+        .exam-cell.has-subject { background-color: #d1ecf1; border-color: #bee5eb; }
 
-        /* 학교 건물 그리드 (과 라벨 포함) */
-        .building-container {
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-        }
-        .floor {
-            display: grid;
-            /* [과 이름] [1학년x2] [여백] [2학년x2] [여백] [3학년x2] */
-            grid-template-columns: 80px 1fr 1fr 20px 1fr 1fr 20px 1fr 1fr;
-            gap: 10px;
-            background: #e9ecef;
-            padding: 15px;
-            border-radius: 8px;
-            align-items: stretch;
-        }
-        .dept-label {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #6c757d;
-            color: white;
-            font-weight: bold;
-            border-radius: 8px;
-            text-align: center;
-            padding: 5px;
-        }
+        /* 결과 출력 화면 스타일 (기존 유지) */
+        .period-container { margin-bottom: 50px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .period-title { font-size: 24px; color: #333; border-bottom: 3px solid #007bff; padding-bottom: 10px; margin-bottom: 20px; }
+        .building-container { display: flex; flex-direction: column; gap: 15px; }
+        .floor { display: grid; grid-template-columns: 80px 1fr 1fr 20px 1fr 1fr 20px 1fr 1fr 20px 100px; gap: 10px; background: #e9ecef; padding: 15px; border-radius: 8px; align-items: stretch; }
+        .dept-label { display: flex; align-items: center; justify-content: center; background: #6c757d; color: white; font-weight: bold; border-radius: 8px; text-align: center; padding: 5px; }
         .spacer { width: 20px; }
-        .classroom {
-            background: white;
-            border: 2px solid #ccc;
-            border-radius: 8px;
-            padding: 10px;
-            text-align: center;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-        }
-        .grade-1 { border-color: #4facfe; }
-        .grade-2 { border-color: #43e97b; }
-        .grade-3 { border-color: #fa709a; }
-
-        .class-title {
-            font-size: 16px;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-        .exam-subject {
-            color: #dc3545;
-            font-weight: bold;
-            margin-bottom: 8px;
-            font-size: 15px;
-        }
-        .teacher-info {
-            font-size: 13px;
-            background: #f1f3f5;
-            margin: 2px 0;
-            padding: 4px;
-            border-radius: 4px;
-        }
+        .classroom { background: white; border: 2px solid #ccc; border-radius: 8px; padding: 10px; text-align: center; display: flex; flex-direction: column; justify-content: center; }
+        .grade-box-1 { border-color: #4facfe; } .grade-box-2 { border-color: #43e97b; } .grade-box-3 { border-color: #fa709a; }
+        .class-title { font-size: 16px; font-weight: bold; margin-bottom: 5px; }
+        .exam-subject { color: #dc3545; font-weight: bold; margin-bottom: 8px; font-size: 15px; }
+        .teacher-info { font-size: 13px; background: #f1f3f5; margin: 2px 0; padding: 4px; border-radius: 4px; }
         .error-text { color: red; font-weight: bold; }
+        .hallway-card { background: #fff3cd; border: 2px dashed #ffc107; border-radius: 8px; padding: 10px; text-align: center; display: flex; flex-direction: column; justify-content: center; }
     </style>
 </head>
 <body>
 
-    <div class="header-panel">
-        <h2>🏫 다중 교시 & 전공과목 맞춤형 감독 배치 (8개반, 4개과)</h2>
-        <p>1. 교사 명단 엑셀 파일을 업로드하세요. (열 이름: 연번, 성명, 과목, 담당학년, 담당반)</p>
+    <div class="panel">
+        <h2>1단계: 교사 명단 엑셀 업로드</h2>
         <input type="file" id="excelInput" accept=".xlsx, .xls" />
-        
-        <div id="controls" class="controls">
-            <span id="teacherCount"></span>
-            <button onclick="runAssignment()">▶ 전체 시간표 자동 배치 실행</button>
-        </div>
+        <span id="teacherCount" style="margin-left: 15px; color: #007bff;"></span>
     </div>
 
-    <!-- 배정 결과가 교시별로 생성될 메인 영역 -->
+    <div class="panel">
+        <h2>2단계: 시험 시간표 입력 (마우스 드래그)</h2>
+        <p style="color: #555; font-size: 14px;">💡 <b>사용법:</b> 같은 과목을 보는 반들을 <b>마우스로 길게 드래그</b>한 뒤 마우스를 놓으면 과목을 입력할 수 있습니다. (과목을 지우려면 빈칸으로 입력)</p>
+        
+        <!-- 시간표가 그려질 영역 -->
+        <div id="scheduleTableContainer"></div>
+        
+        <button id="runBtn" onclick="runAssignment()" style="display:none; width: 100%; margin-top: 20px;">🚀 위 시간표대로 자동 배치 실행</button>
+    </div>
+
     <div id="mainOutput"></div>
 
     <script>
-        // 📌 4. 전체 교시 감독 배치 핵심 알고리즘 (수정됨: 배정 기록 추가)
+        // --- 환경 설정 ---
+        const departments = ["1과", "2과", "3과", "4과"]; 
+        const maxDays = 2; // 표시할 일수 (기본 2일)
+        const maxPeriods = 3; // 하루당 교시 수 (기본 3교시)
+        let rawTeachers = [];
+
+        // --- 1. 시간표 테이블 생성 및 드래그 로직 ---
+        function initScheduleTable() {
+            let html = `<table class="schedule-table" id="scheduleTable">`;
+            
+            // 헤더 생성
+            html += `<thead><tr><th rowspan="2">일차</th><th rowspan="2">교시</th>`;
+            html += `<th colspan="8" class="grade-header grade-1">1학년</th>`;
+            html += `<th colspan="8" class="grade-header grade-2">2학년</th>`;
+            html += `<th colspan="8" class="grade-header grade-3">3학년</th></tr><tr>`;
+            
+            for(let g=1; g<=3; g++) {
+                for(let c=1; c<=8; c++) html += `<th>${c}반</th>`;
+            }
+            html += `</tr></thead><tbody>`;
+
+            // 행(Row) 생성
+            for(let d=1; d<=maxDays; d++) {
+                for(let p=1; p<=maxPeriods; p++) {
+                    let periodName = `${d}일차 ${p}교시`;
+                    html += `<tr data-period="${periodName}">`;
+                    if(p === 1) html += `<td rowspan="${maxPeriods}"><strong>${d}일차</strong></td>`;
+                    html += `<td>${p}교시</td>`;
+                    
+                    for(let g=1; g<=3; g++) {
+                        for(let c=1; c<=8; c++) {
+                            html += `<td class="exam-cell" data-grade="${g}" data-class="${c}"></td>`;
+                        }
+                    }
+                    html += `</tr>`;
+                }
+            }
+            html += `</tbody></table>`;
+            document.getElementById('scheduleTableContainer').innerHTML = html;
+            attachDragEvents();
+        }
+
+        // 마우스 드래그 이벤트 (블록 지정)
+        function attachDragEvents() {
+            let isDragging = false;
+            let selectedCells = [];
+            let startRowIndex = -1;
+            const table = document.getElementById('scheduleTable');
+
+            table.addEventListener('mousedown', (e) => {
+                if(e.target.classList.contains('exam-cell')) {
+                    isDragging = true;
+                    document.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
+                    selectedCells = [e.target];
+                    e.target.classList.add('selected');
+                    startRowIndex = e.target.parentElement.rowIndex; // 같은 줄(교시)만 선택되게 제한
+                }
+            });
+
+            table.addEventListener('mouseover', (e) => {
+                if(isDragging && e.target.classList.contains('exam-cell')) {
+                    if(e.target.parentElement.rowIndex === startRowIndex && !selectedCells.includes(e.target)) {
+                        selectedCells.push(e.target);
+                        e.target.classList.add('selected');
+                    }
+                }
+            });
+
+            window.addEventListener('mouseup', () => {
+                if(isDragging) {
+                    isDragging = false;
+                    if(selectedCells.length > 0) {
+                        // 프롬프트 창 띄우기
+                        let subject = prompt("지정한 반들의 시험 과목을 입력하세요.\n(비워두거나 취소하면 지워집니다.)");
+                        if(subject !== null) {
+                            let cleanSubject = subject.trim();
+                            selectedCells.forEach(cell => {
+                                cell.innerText = cleanSubject;
+                                if(cleanSubject) {
+                                    cell.classList.add('has-subject');
+                                } else {
+                                    cell.classList.remove('has-subject');
+                                }
+                            });
+                        }
+                        // 선택 해제 효과
+                        selectedCells.forEach(c => c.classList.remove('selected'));
+                        selectedCells = [];
+                    }
+                }
+            });
+        }
+
+        // 화면 켜질 때 표 생성
+        initScheduleTable();
+
+        // --- 2. 엑셀 파일 읽기 (기존 동일) ---
+        document.getElementById('excelInput').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: "" });
+
+                rawTeachers = jsonData.map(t => {
+                    let cleanObj = {};
+                    for (let key in t) cleanObj[key.trim()] = t[key];
+                    return {
+                        연번: cleanObj["연번"],
+                        성명: String(cleanObj["성명"]).trim(),
+                        과목: String(cleanObj["과목"] || ""),
+                        담당학년: cleanObj["담당학년"] ? parseInt(String(cleanObj["담당학년"]).replace(/[^0-9]/g, '')) : null,
+                        담당반: cleanObj["담당반"] ? parseInt(String(cleanObj["담당반"]).replace(/[^0-9]/g, '')) : null
+                    };
+                });
+                document.getElementById('teacherCount').innerHTML = `<strong>✔ 인식된 교사: ${rawTeachers.length}명</strong>`;
+                document.getElementById('runBtn').style.display = 'block'; // 배치 버튼 표시
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // --- 3. 화면의 시간표를 읽어서 데이터로 변환 ---
+        function buildScheduleDataFromTable() {
+            let scheduleData = [];
+            const rows = document.querySelectorAll('#scheduleTable tbody tr');
+            
+            rows.forEach(row => {
+                let periodName = row.getAttribute('data-period');
+                let periodExams = [];
+                let subjectMap = {}; // "1학년_국어" -> [1,2,3,4반] 묶기 용도
+
+                const cells = row.querySelectorAll('.exam-cell');
+                cells.forEach(cell => {
+                    let subject = cell.innerText.trim();
+                    if(subject) {
+                        let grade = parseInt(cell.getAttribute('data-grade'));
+                        let classNum = parseInt(cell.getAttribute('data-class'));
+                        
+                        let key = `${grade}_${subject}`;
+                        if(!subjectMap[key]) subjectMap[key] = { grade: grade, subject: subject, classes: [] };
+                        subjectMap[key].classes.push(classNum);
+                    }
+                });
+
+                // 맵을 배열로 변환
+                for(let key in subjectMap) {
+                    periodExams.push(subjectMap[key]);
+                }
+
+                // 이 교시에 시험이 하나라도 있으면 스케줄에 추가
+                if(periodExams.length > 0) {
+                    scheduleData.push({ periodName: periodName, exams: periodExams });
+                }
+            });
+            return scheduleData;
+        }
+
+        // --- 4. 자동 배치 실행 로직 ---
         function runAssignment() {
-            // 테스트 결과를 저장하기 위해 assignments 배열(빈 공간)을 추가로 만들어 줍니다.
+            const currentScheduleData = buildScheduleDataFromTable();
+            
+            if(currentScheduleData.length === 0) {
+                alert("입력된 시험 시간표가 없습니다! 표에 과목을 입력해 주세요.");
+                return;
+            }
+
             let teachers = rawTeachers.map(t => ({ ...t, totalCount: 0, assignments: [] }));
             let allResults = [];
 
-            scheduleData.forEach(period => {
-                let periodResult = { periodName: period.periodName, rooms: {} };
+            currentScheduleData.forEach(period => {
+                let periodResult = { periodName: period.periodName, rooms: {}, hallway: [] };
                 
                 let activeSubjects = new Set();
                 period.exams.forEach(ex => activeSubjects.add(ex.subject));
@@ -150,9 +248,13 @@
                     return true;
                 });
 
+                // 교실 배정
                 for (let g = 1; g <= 3; g++) {
                     for (let c = 1; c <= 8; c++) {
-                        let subject = getExamSubject(period.exams, g, c);
+                        let subject = null;
+                        for(let ex of period.exams) {
+                            if(ex.grade === g && ex.classes.includes(c)) subject = ex.subject;
+                        }
                         if (!subject) continue; 
 
                         availablePool.sort((a, b) => {
@@ -161,81 +263,186 @@
                         });
 
                         let roomTeachers = [];
-                        
                         for (let i = 0; i < availablePool.length; i++) {
                             let candidate = availablePool[i];
-
-                            if (String(candidate.담당학년) === String(g) && String(candidate.담당반) === String(c)) {
-                                continue; 
-                            }
+                            if (String(candidate.담당학년) === String(g) && String(candidate.담당반) === String(c)) continue; 
 
                             roomTeachers.push(candidate);
                             candidate.totalCount += 1; 
-                            
-                            // 🌟 추가됨: 이 선생님이 어디에 배정되었는지 텍스트로 기록!
                             candidate.assignments.push(`[${period.periodName}] ${g}학년 ${c}반`);
                             
                             availablePool.splice(i, 1);
                             i--; 
-
                             if (roomTeachers.length === 2) break;
                         }
+                        periodResult.rooms[`${g}-${c}`] = { subject: subject, teachers: roomTeachers };
+                    }
+                }
 
-                        periodResult.rooms[`${g}-${c}`] = {
-                            subject: subject,
-                            teachers: roomTeachers
-                        };
+                // 🌟 수정됨: 복도 배정 (시험이 있는 층만 배정)
+                for (let row = 0; row < 4; row++) {
+                    // 현재 층에 시험이 하나라도 있는지 검사 (1~3학년의 해당 라인 반들 확인)
+                    let hasExamOnFloor = false;
+                    for (let g = 1; g <= 3; g++) {
+                        let c1 = row * 2 + 1;
+                        let c2 = row * 2 + 2;
+                        if (periodResult.rooms[`${g}-${c1}`] || periodResult.rooms[`${g}-${c2}`]) {
+                            hasExamOnFloor = true;
+                            break; // 하나라도 시험이 있으면 더 이상 검사할 필요 없음
+                        }
+                    }
+
+                    // 시험이 있는 층일 경우에만 복도 감독 배정
+                    if (hasExamOnFloor) {
+                        availablePool.sort((a, b) => {
+                            if (a.totalCount === b.totalCount) return Math.random() - 0.5;
+                            return a.totalCount - b.totalCount;
+                        });
+
+                        if (availablePool.length > 0) {
+                            let hwTeacher = availablePool.shift();
+                            hwTeacher.totalCount += 1;
+                            hwTeacher.assignments.push(`[${period.periodName}] ${departments[row]} 복도`);
+                            periodResult.hallway.push(hwTeacher);
+                        } else {
+                            periodResult.hallway.push("SHORTAGE"); // 대기 인원 부족
+                        }
+                    } else {
+                        periodResult.hallway.push("NO_EXAM"); // 이 층은 시험 없음
                     }
                 }
                 allResults.push(periodResult);
             });
 
-            // 1. 기존 학교 그리드 렌더링
             renderAllPeriods(allResults);
-            
-            // 2. 🌟 추가됨: 테스트용 교사별 요약 리스트 렌더링
             renderTeacherSummary(teachers);
         }
 
-        // 📌 6. [테스트용] 교사별 배정 결과 리스트 출력 함수 (새로 추가)
+        // --- 5. UI 렌더링 함수 ---
+        function renderAllPeriods(allResults) {
+            const mainOutput = document.getElementById('mainOutput');
+            mainOutput.innerHTML = ''; 
+
+            allResults.forEach(period => {
+                const periodDiv = document.createElement('div');
+                periodDiv.className = 'period-container';
+                
+                const title = document.createElement('div');
+                title.className = 'period-title';
+                title.textContent = period.periodName;
+                periodDiv.appendChild(title);
+
+                const building = document.createElement('div');
+                building.className = 'building-container';
+
+                for (let row = 0; row < 4; row++) {
+                    const floorDiv = document.createElement('div');
+                    floorDiv.className = 'floor';
+
+                    const deptLabel = document.createElement('div');
+                    deptLabel.className = 'dept-label';
+                    deptLabel.textContent = departments[row];
+                    floorDiv.appendChild(deptLabel);
+
+                    for (let g = 1; g <= 3; g++) {
+                        const class1 = row * 2 + 1;
+                        const class2 = row * 2 + 2;
+
+                        floorDiv.appendChild(createClassCard(g, class1, period.rooms));
+                        floorDiv.appendChild(createClassCard(g, class2, period.rooms));
+
+                        if (g < 3) {
+                            const spacer = document.createElement('div');
+                            spacer.className = 'spacer';
+                            floorDiv.appendChild(spacer);
+                        }
+                    }
+
+                    const finalSpacer = document.createElement('div');
+                    finalSpacer.className = 'spacer';
+                    floorDiv.appendChild(finalSpacer);
+
+                    // 🌟 수정됨: 복도 감독 렌더링 (시험 없음 상태 추가)
+                    const hwCard = document.createElement('div');
+                    hwCard.className = 'hallway-card';
+                    const hwTeacher = period.hallway[row];
+                    
+                    let hwHtml = `<div class="class-title" style="color:#856404; font-size:14px;">복도 감독</div>`;
+                    
+                    if (hwTeacher === "NO_EXAM") {
+                        // 시험이 없는 층은 회색으로 비활성화 처리
+                        hwHtml += `<div class="teacher-info" style="color:#aaa; background:transparent;">- 시험 없음 -</div>`;
+                        hwCard.style.backgroundColor = "#f8f9fa";
+                        hwCard.style.borderColor = "#ddd";
+                        hwCard.querySelector('.class-title').style.color = "#888";
+                    } else if (hwTeacher === "SHORTAGE") {
+                        hwHtml += `<div class="teacher-info error-text">대기 인원 부족</div>`;
+                    } else if (hwTeacher) {
+                        hwHtml += `<div class="teacher-info" style="background:white; font-weight:bold;">${hwTeacher.성명}<br><span style="font-size:11px; font-weight:normal;">(${hwTeacher.과목})</span></div>`;
+                    }
+                    
+                    hwCard.innerHTML = hwHtml;
+                    floorDiv.appendChild(hwCard);
+
+                    building.appendChild(floorDiv);
+                }
+                periodDiv.appendChild(building);
+                mainOutput.appendChild(periodDiv);
+            });
+        }
+
+        function createClassCard(grade, classNum, roomsResult) {
+            const card = document.createElement('div');
+            card.className = `classroom grade-box-${grade}`;
+            
+            const roomKey = `${grade}-${classNum}`;
+            const roomData = roomsResult[roomKey];
+
+            let html = `<div class="class-title">${grade}학년 ${classNum}반</div>`;
+            
+            if (roomData) {
+                html += `<div class="exam-subject">[ ${roomData.subject} ]</div>`;
+                if (roomData.teachers.length === 2) {
+                    html += `<div class="teacher-info">${roomData.teachers[0].성명} (${roomData.teachers[0].과목})</div>`;
+                    html += `<div class="teacher-info">${roomData.teachers[1].성명} (${roomData.teachers[1].과목})</div>`;
+                } else if (roomData.teachers.length === 1) {
+                    html += `<div class="teacher-info">${roomData.teachers[0].성명} (${roomData.teachers[0].과목})</div>`;
+                    html += `<div class="teacher-info error-text">교사 부족! (1명)</div>`;
+                } else {
+                    html += `<div class="teacher-info error-text">교사 부족! (0명)</div>`;
+                }
+            } else {
+                html += `<div class="exam-subject" style="color:#aaa;">- 시험 없음 -</div>`;
+            }
+            card.innerHTML = html;
+            return card;
+        }
+
         function renderTeacherSummary(teachers) {
             const mainOutput = document.getElementById('mainOutput');
-            
-            // 테스트 영역 박스 만들기 (눈에 띄게 노란색 배경)
             const summaryDiv = document.createElement('div');
             summaryDiv.style.marginTop = "50px";
             summaryDiv.style.padding = "20px";
             summaryDiv.style.background = "#fff3cd";
             summaryDiv.style.border = "2px solid #ffe69c";
             summaryDiv.style.borderRadius = "8px";
-            summaryDiv.innerHTML = "<h3 style='margin-top:0; color:#856404;'>🛠️ [테스트용 검증] 교사별 배정 요약</h3>";
+            summaryDiv.innerHTML = "<h3 style='margin-top:0; color:#856404;'>🛠️ [검증용] 교사별 배정 요약</h3>";
 
-            // 보기 편하게 연번 순으로 다시 정렬
             const sortedTeachers = [...teachers].sort((a, b) => a.연번 - b.연번);
-
             let html = `<ul style="list-style:none; padding:0; margin:0;">`;
             
             sortedTeachers.forEach(t => {
-                // 담임 여부 표시용 텍스트
                 const role = (t.담당학년 && t.담당반) ? `<span style="color:blue;">[${t.담당학년}-${t.담당반} 담임]</span>` : `[비담임]`;
-                
-                // 배정된 곳 나열 (없으면 대기/순회)
                 const places = t.assignments.length > 0 
                     ? `<strong style="color:red;">${t.assignments.join(", ")}</strong>` 
-                    : `<span style="color:gray;">배정 없음 (과목 순회 또는 대기)</span>`;
+                    : `<span style="color:gray;">배정 없음</span>`;
 
-                html += `
-                    <li style="padding: 8px 0; border-bottom: 1px dashed #ffe69c;">
-                        <strong>${t.연번}. ${t.성명}</strong> (${t.과목}) ${role} 
-                        👉 총 ${t.totalCount}회 : ${places}
-                    </li>
-                `;
+                html += `<li style="padding: 8px 0; border-bottom: 1px dashed #ffe69c;">
+                        <strong>${t.연번}. ${t.성명}</strong> (${t.과목}) ${role} 👉 총 ${t.totalCount}회 : ${places}
+                    </li>`;
             });
-
             html += `</ul>`;
             summaryDiv.innerHTML += html;
-            
-            // 화면 맨 밑에 추가
             mainOutput.appendChild(summaryDiv);
         }
     </script>
