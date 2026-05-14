@@ -131,72 +131,10 @@
     <div id="mainOutput"></div>
 
     <script>
-        // 전역 변수
-        let rawTeachers = [];
-
-        // 📌 1. 층별 학과 이름 설정 (1~2반, 3~4반, 5~6반, 7~8반 순서)
-        const departments = ["1과", "2과", "3과", "4과"]; 
-
-        // 📌 2. 상세 시간표 데이터 하드코딩 (학교에 맞게 수정하세요)
-        const scheduleData = [
-            {
-                periodName: "1일차 1교시",
-                exams: [
-                    { grade: 1, classes: [1,2,3,4,5,6,7,8], subject: "통합사회" },
-                    { grade: 2, classes: [1,2,3,4], subject: "기계일반" },
-                    { grade: 2, classes: [5,6,7,8], subject: "전기회로" },
-                    { grade: 3, classes: [1,2,3,4,5,6,7,8], subject: "성공적인직업생활" }
-                ]
-            }
-        ];
-
-        // 특정 학년/반의 이번 교시 시험 과목을 찾는 함수
-        function getExamSubject(periodExams, grade, classNum) {
-            for (let exam of periodExams) {
-                if (exam.grade === grade && exam.classes.includes(classNum)) {
-                    return exam.subject;
-                }
-            }
-            return null; // 시험 없음
-        }
-
-        // 📌 3. 엑셀 파일 읽기 로직 (공백 및 에러 방어 코드 추가)
-        document.getElementById('excelInput').addEventListener('change', function (e) {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = function (e) {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
-                const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: "" });
-
-                rawTeachers = jsonData.map(t => {
-                    // 헤더에 공백이 들어갔을 경우를 대비해, 모든 키(Key)의 공백을 제거한 객체를 임시로 만듦
-                    let cleanObj = {};
-                    for (let key in t) {
-                        cleanObj[key.trim()] = t[key];
-                    }
-
-                    return {
-                        연번: cleanObj["연번"],
-                        성명: String(cleanObj["성명"]).trim(), // 이름 앞뒤 공백(예: '장 이')은 유지하되 겉은 다듬음
-                        과목: String(cleanObj["과목"] || ""), // 빈 과목 방어
-                        // 학년/반 데이터의 글자, 공백을 모두 날리고 '순수 숫자'만 남김
-                        담당학년: cleanObj["담당학년"] ? parseInt(String(cleanObj["담당학년"]).replace(/[^0-9]/g, '')) : null,
-                        담당반: cleanObj["담당반"] ? parseInt(String(cleanObj["담당반"]).replace(/[^0-9]/g, '')) : null
-                    };
-                });
-
-                document.getElementById('teacherCount').innerHTML = `<strong>인식된 교사: ${rawTeachers.length}명</strong> | `;
-                document.getElementById('controls').style.display = 'block';
-            };
-            reader.readAsArrayBuffer(file);
-        });
-
-        // 📌 4. 전체 교시 감독 배치 핵심 알고리즘
+        // 📌 4. 전체 교시 감독 배치 핵심 알고리즘 (수정됨: 배정 기록 추가)
         function runAssignment() {
-            let teachers = rawTeachers.map(t => ({ ...t, totalCount: 0 }));
+            // 테스트 결과를 저장하기 위해 assignments 배열(빈 공간)을 추가로 만들어 줍니다.
+            let teachers = rawTeachers.map(t => ({ ...t, totalCount: 0, assignments: [] }));
             let allResults = [];
 
             scheduleData.forEach(period => {
@@ -205,9 +143,7 @@
                 let activeSubjects = new Set();
                 period.exams.forEach(ex => activeSubjects.add(ex.subject));
 
-                // 🌟 수정됨: 과목 배제 로직 (슬래시 포함된 선생님 걸러내기)
                 let availablePool = teachers.filter(t => {
-                    // 현재 교시 시험 과목들 중, 이 선생님의 과목(예: '전기회로/디지털')에 포함되는 문자가 하나라도 있으면 배제!
                     for (let examSubj of activeSubjects) {
                         if (t.과목.includes(examSubj)) return false; 
                     }
@@ -229,13 +165,15 @@
                         for (let i = 0; i < availablePool.length; i++) {
                             let candidate = availablePool[i];
 
-                            // 🌟 수정됨: 담임 배제 로직 (데이터 타입 강제 일치)
                             if (String(candidate.담당학년) === String(g) && String(candidate.담당반) === String(c)) {
                                 continue; 
                             }
 
                             roomTeachers.push(candidate);
                             candidate.totalCount += 1; 
+                            
+                            // 🌟 추가됨: 이 선생님이 어디에 배정되었는지 텍스트로 기록!
+                            candidate.assignments.push(`[${period.periodName}] ${g}학년 ${c}반`);
                             
                             availablePool.splice(i, 1);
                             i--; 
@@ -252,83 +190,53 @@
                 allResults.push(periodResult);
             });
 
+            // 1. 기존 학교 그리드 렌더링
             renderAllPeriods(allResults);
+            
+            // 2. 🌟 추가됨: 테스트용 교사별 요약 리스트 렌더링
+            renderTeacherSummary(teachers);
         }
 
-        // 📌 5. 화면 UI 렌더링 (이전 코드와 동일하므로 복사 붙여넣기 하시면 됩니다)
-        function renderAllPeriods(allResults) {
+        // 📌 6. [테스트용] 교사별 배정 결과 리스트 출력 함수 (새로 추가)
+        function renderTeacherSummary(teachers) {
             const mainOutput = document.getElementById('mainOutput');
-            mainOutput.innerHTML = ''; 
+            
+            // 테스트 영역 박스 만들기 (눈에 띄게 노란색 배경)
+            const summaryDiv = document.createElement('div');
+            summaryDiv.style.marginTop = "50px";
+            summaryDiv.style.padding = "20px";
+            summaryDiv.style.background = "#fff3cd";
+            summaryDiv.style.border = "2px solid #ffe69c";
+            summaryDiv.style.borderRadius = "8px";
+            summaryDiv.innerHTML = "<h3 style='margin-top:0; color:#856404;'>🛠️ [테스트용 검증] 교사별 배정 요약</h3>";
 
-            allResults.forEach(period => {
-                const periodDiv = document.createElement('div');
-                periodDiv.className = 'period-container';
+            // 보기 편하게 연번 순으로 다시 정렬
+            const sortedTeachers = [...teachers].sort((a, b) => a.연번 - b.연번);
+
+            let html = `<ul style="list-style:none; padding:0; margin:0;">`;
+            
+            sortedTeachers.forEach(t => {
+                // 담임 여부 표시용 텍스트
+                const role = (t.담당학년 && t.담당반) ? `<span style="color:blue;">[${t.담당학년}-${t.담당반} 담임]</span>` : `[비담임]`;
                 
-                const title = document.createElement('div');
-                title.className = 'period-title';
-                title.textContent = period.periodName;
-                periodDiv.appendChild(title);
+                // 배정된 곳 나열 (없으면 대기/순회)
+                const places = t.assignments.length > 0 
+                    ? `<strong style="color:red;">${t.assignments.join(", ")}</strong>` 
+                    : `<span style="color:gray;">배정 없음 (과목 순회 또는 대기)</span>`;
 
-                const building = document.createElement('div');
-                building.className = 'building-container';
-
-                for (let row = 0; row < 4; row++) {
-                    const floorDiv = document.createElement('div');
-                    floorDiv.className = 'floor';
-
-                    const deptLabel = document.createElement('div');
-                    deptLabel.className = 'dept-label';
-                    deptLabel.textContent = departments[row];
-                    floorDiv.appendChild(deptLabel);
-
-                    for (let g = 1; g <= 3; g++) {
-                        const class1 = row * 2 + 1;
-                        const class2 = row * 2 + 2;
-
-                        floorDiv.appendChild(createClassCard(g, class1, period.rooms));
-                        floorDiv.appendChild(createClassCard(g, class2, period.rooms));
-
-                        if (g < 3) {
-                            const spacer = document.createElement('div');
-                            spacer.className = 'spacer';
-                            floorDiv.appendChild(spacer);
-                        }
-                    }
-                    building.appendChild(floorDiv);
-                }
-                
-                periodDiv.appendChild(building);
-                mainOutput.appendChild(periodDiv);
+                html += `
+                    <li style="padding: 8px 0; border-bottom: 1px dashed #ffe69c;">
+                        <strong>${t.연번}. ${t.성명}</strong> (${t.과목}) ${role} 
+                        👉 총 ${t.totalCount}회 : ${places}
+                    </li>
+                `;
             });
-        }
 
-        function createClassCard(grade, classNum, roomsResult) {
-            const card = document.createElement('div');
-            card.className = `classroom grade-${grade}`;
+            html += `</ul>`;
+            summaryDiv.innerHTML += html;
             
-            const roomKey = `${grade}-${classNum}`;
-            const roomData = roomsResult[roomKey];
-
-            let html = `<div class="class-title">${grade}학년 ${classNum}반</div>`;
-            
-            if (roomData) {
-                html += `<div class="exam-subject">[ ${roomData.subject} ]</div>`;
-                
-                if (roomData.teachers.length === 2) {
-                    html += `<div class="teacher-info">${roomData.teachers[0].성명} (${roomData.teachers[0].과목})</div>`;
-                    html += `<div class="teacher-info">${roomData.teachers[1].성명} (${roomData.teachers[1].과목})</div>`;
-                } else if (roomData.teachers.length === 1) {
-                    html += `<div class="teacher-info">${roomData.teachers[0].성명} (${roomData.teachers[0].과목})</div>`;
-                    html += `<div class="teacher-info error-text">교사 부족! (1명)</div>`;
-                } else {
-                    html += `<div class="teacher-info error-text">교사 부족! (0명)</div>`;
-                }
-            } else {
-                html += `<div class="exam-subject" style="color:#aaa;">- 시험 없음 -</div>`;
-            }
-
-            card.innerHTML = html;
-            return card;
+            // 화면 맨 밑에 추가
+            mainOutput.appendChild(summaryDiv);
         }
     </script>
 </body>
